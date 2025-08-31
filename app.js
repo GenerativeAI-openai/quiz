@@ -2,6 +2,7 @@ import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13.6.18/dist/yjs.mjs"
 import { WebrtcProvider } from "https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/dist/y-webrtc.min.js"
 
 const $ = (id) => document.getElementById(id)
+const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
 
 // UI refs
 const roomInput = $("room")
@@ -248,9 +249,7 @@ startGameBtn.onclick = async () => {
 loadFromUrlBtn.onclick = async () => {
   if (!isHost()) return alert("호스트만 로드할 수 있습니다.")
   try {
-    const url = quizUrlInput.value.trim()
-    if (!url) return alert("Raw JSON URL을 입력하세요.")
-    const res = await hostLoadQuiz(url)
+    const res = await hostLoadQuiz(QUIZ_URL)
     alert(`퀴즈 로드 완료: 총 ${res.total}개 중 사용 ${res.accepted}개 (필터링 ${res.filtered}개)`)
   } catch (e) {
     alert("로드 실패: " + e.message)
