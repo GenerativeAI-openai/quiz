@@ -1,14 +1,15 @@
-// app.js
-// Robust app.js using esm.sh for y-webrtc and with diagnostics
+// app.js (크래시 방지/진단 로그 강화 버전)
 import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13.6.18/dist/yjs.mjs"
 import { WebrtcProvider } from "https://esm.sh/y-webrtc@10.3.0"
 
-// Fixed quiz URL
+// 고정 퀴즈 URL
 const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
 
+// 유틸
 const $ = (id) => document.getElementById(id)
+const log = (...a) => { if (window.__QUIZ_DEBUG !== false) console.log("[QUIZ]", ...a) }
 
-// Basic UI
+// UI refs
 const roomInput = $("room")
 const nameInput = $("name")
 const joinBtn = $("join")
@@ -29,40 +30,46 @@ const myAnsEl = $("myAns")
 const myScoreEl = $("myScore")
 const result = $("result")
 const rankingEl = $("ranking")
-const alertBox = $("alert")
-const alertText = $("alertText")
 
-// Diagnostics helpers
+// (선택) 오류 패널이 있으면 쓰고, 없으면 콘솔만 사용
+const alertBox = $("alert") || null
+const alertText = $("alertText") || null
 function showError(msg) {
-  console.error(msg)
-  alertText.textContent = String(msg)
-  alertBox.classList.remove("hidden")
+  console.error("[QUIZ]", msg)
+  if (alertBox && alertText) {
+    alertText.textContent = String(msg)
+    alertBox.classList.remove("hidden")
+  } else {
+    // 화면 요소가 없어도 절대 크래시하지 않음
+  }
 }
+
+// 전역 에러 훅(패널 없으면 콘솔만)
 window.addEventListener("error", (e)=> showError("Uncaught error: " + (e?.error?.message || e.message || e)))
 window.addEventListener("unhandledrejection", (e)=> showError("Unhandled promise rejection: " + (e?.reason?.message || e.reason || e)))
 
-// Warn if opened via file:// (module worker & cross-origin issues)
+// file:// 경고(크래시 X)
 if (location.protocol === "file:") {
-  showError("file:// 로 열면 Web Worker/모듈 가져오기 문제가 발생할 수 있어요. 간단한 로컬 서버로 열어주세요. (예: VS Code Live Server, 또는 `python -m http.server`)")
+  showError("file:// 로 열면 Web Worker/모듈 문제가 납니다. 간단 서버로 열어주세요. (예: `python -m http.server`)")
 }
 
-// Yjs
+// Yjs 공유 상태
 let doc, provider, awareness, stateMap, answersMap
 let me = { id: "", name: "", host: false }
 let tickInterval = null
 
-// Host-only worker
+// 호스트 전용 워커(RPC)
 let hostWorker = null
 let reqSeq = 0
 const pendingReq = new Map()
 
-function show(el, on = true){ el.classList.toggle("hidden", !on) }
-function getPhase(){ return stateMap.get("phase") || "lobby" }
+function show(el, on = true){ if (el) el.classList.toggle("hidden", !on) }
+function getPhase(){ return stateMap?.get("phase") || "lobby" }
 function setPhase(p){ stateMap.set("phase", p) }
-function getQIndex(){ return stateMap.get("qIndex") ?? -1 }
+function getQIndex(){ return stateMap?.get("qIndex") ?? -1 }
 function setQIndex(i){ stateMap.set("qIndex", i) }
-function getCurrentQShared(){ return stateMap.get("currentQ") || null } // {q,opts,t}
-function isHost(){ return !!(answersMap.get(me.id)?.host) }
+function getCurrentQShared(){ return stateMap?.get("currentQ") || null } // {q,opts,t}
+function isHost(){ return !!(answersMap?.get(me.id)?.host) }
 function now(){ return Date.now() }
 
 function ensureMe(){
@@ -73,13 +80,14 @@ function ensureMe(){
 }
 
 function renderPeers(){
+  if (!peersEl) return
   const peers = []
   answersMap.forEach((v, k) => peers.push({ id: k, ...v }))
   peers.sort((a,b) => b.score - a.score)
   peersEl.innerHTML = peers.map(p => `<span class="badge">${p.nickname}${p.host ? " ⭐" : ""} (${p.score})</span>`).join("")
 }
 
-function stopTimerTick(){ if (tickInterval) { clearInterval(tickInterval); tickInterval = null } timerEl.textContent = "" }
+function stopTimerTick(){ if (tickInterval) { clearInterval(tickInterval); tickInterval = null } if (timerEl) timerEl.textContent = "" }
 function startTimerIfNeeded(){
   stopTimerTick()
   const q = getCurrentQShared()
@@ -88,7 +96,7 @@ function startTimerIfNeeded(){
   if (!q || !limit || !startedAt) return
   const renderTick = () => {
     const remain = Math.max(0, Math.ceil((startedAt + limit*1000 - now())/1000))
-    timerEl.textContent = remain > 0 ? `남은 시간: ${remain}s` : "시간 종료"
+    if (timerEl) timerEl.textContent = remain > 0 ? `남은 시간: ${remain}s` : "시간 종료"
     if (remain <= 0) stopTimerTick()
   }
   renderTick()
@@ -100,35 +108,37 @@ function renderPhase(){
   show(lobby, phase === "lobby")
   show(play, phase === "playing")
   show(result, phase === "result")
-  show(hostPanel, isHost()) // host panel only for host
+  show(hostPanel, isHost()) // 호스트만 패널 표시
 
   if (phase === "playing"){
     const q = getCurrentQShared()
     if (!q) {
-      qbox.textContent = "문제가 없습니다"
-      optsEl.innerHTML = ""
+      if (qbox) qbox.textContent = "문제가 없습니다"
+      if (optsEl) optsEl.innerHTML = ""
       return
     }
-    qbox.textContent = q.q
-    optsEl.innerHTML = ""
-    q.opts.forEach((opt, idx) => {
-      const btn = document.createElement("button")
-      btn.textContent = `${idx+1}. ${opt}`
-      btn.onclick = () => submitAnswer(idx)
-      optsEl.appendChild(btn)
-    })
+    if (qbox) qbox.textContent = q.q
+    if (optsEl) {
+      optsEl.innerHTML = ""
+      q.opts.forEach((opt, idx) => {
+        const btn = document.createElement("button")
+        btn.textContent = `${idx+1}. ${opt}`
+        btn.onclick = () => submitAnswer(idx)
+        optsEl.appendChild(btn)
+      })
+    }
     startTimerIfNeeded()
   } else if (phase === "result") {
     stopTimerTick()
     const arr = []
     answersMap.forEach((v, k) => arr.push({ id:k, ...v }))
     arr.sort((a,b)=> b.score - a.score)
-    rankingEl.innerHTML = arr.map(p => `<li>${p.nickname} — ${p.score}점</li>`).join("")
+    if (rankingEl) rankingEl.innerHTML = arr.map(p => `<li>${p.nickname} — ${p.score}점</li>`).join("")
   }
   renderPeers()
 }
 
-// Worker RPC
+// 워커 RPC
 function workerCall(type, payload){
   return new Promise((resolve, reject) => {
     if (!hostWorker) return reject(new Error("호스트 워커가 초기화되지 않았습니다."));
@@ -137,7 +147,6 @@ function workerCall(type, payload){
     hostWorker.postMessage({ type, payload, reqId });
   });
 }
-
 function initHostWorker(){
   if (hostWorker) return;
   try {
@@ -151,12 +160,13 @@ function initHostWorker(){
       pendingReq.delete(reqId)
       if (ok) resolve(data); else reject(new Error(error || "Worker error"))
     }
+    log("Worker initialized")
   } catch (e) {
     showError("워커 초기화 실패: " + e.message)
   }
 }
 
-// Host round control
+// 라운드 제어(호스트)
 async function hostLoadQuiz(url){ initHostWorker(); return workerCall("LOAD", { url }); }
 async function hostPushRound(index){
   const pubQ = await workerCall("GET_Q", { index });
@@ -182,7 +192,7 @@ async function hostScoreNow(){
   }
 }
 
-// Submit
+// 제출
 function submitAnswer(idx){
   const q = getCurrentQShared()
   if (!q) return
@@ -194,109 +204,123 @@ function submitAnswer(idx){
   my.pending = idx
   my.lastAnswer = idx
   answersMap.set(me.id, my)
-  myAnsEl.textContent = idx+1
-  myScoreEl.textContent = my.score ?? 0
+  if (myAnsEl) myAnsEl.textContent = String(idx+1)
+  if (myScoreEl) myScoreEl.textContent = String(my.score ?? 0)
 }
 
-// Bind
-joinBtn.addEventListener("click", () => {
-  try {
-    const room = roomInput?.value?.trim()
-    const name = nameInput?.value?.trim() || "Player"
-    if (!room) return alert("방 코드를 입력하세요")
+// 바인딩 (DOMContentLoaded 이후에도 안전)
+function bindUI() {
+  if (!joinBtn) { showError("버튼 요소를 찾지 못했습니다. index.html의 id를 확인하세요."); return; }
 
-    me.id = crypto.randomUUID()
-    me.name = name
+  joinBtn.addEventListener("click", () => {
+    try {
+      const room = roomInput?.value?.trim()
+      const name = nameInput?.value?.trim() || "Player"
+      if (!room) return alert("방 코드를 입력하세요")
 
-    doc = new Y.Doc()
-    provider = new WebrtcProvider(room, doc, {})
-    awareness = provider.awareness
+      me.id = crypto.randomUUID()
+      me.name = name
 
-    stateMap = doc.getMap("state")
-    answersMap = doc.getMap("answers")
+      doc = new Y.Doc()
+      provider = new WebrtcProvider(room, doc, {})
+      awareness = provider.awareness
 
-    if (!stateMap.get("phase")) stateMap.set("phase", "lobby")
-    if (stateMap.get("qIndex") === undefined) stateMap.set("qIndex", -1)
+      stateMap = doc.getMap("state")
+      answersMap = doc.getMap("answers")
 
-    const cur = answersMap.get(me.id) || { nickname: me.name, score: 0, lastAnswer: null, host: false, pending: null }
-    answersMap.set(me.id, cur)
+      if (!stateMap.get("phase")) stateMap.set("phase", "lobby")
+      if (stateMap.get("qIndex") === undefined) stateMap.set("qIndex", -1)
 
-    awareness.setLocalStateField("user", { id: me.id, name: me.name })
+      const cur = answersMap.get(me.id) || { nickname: me.name, score: 0, lastAnswer: null, host: false, pending: null }
+      answersMap.set(me.id, cur)
 
-    stateMap.observe(renderPhase)
-    answersMap.observe(async () => {
-      renderPeers(); renderPhase();
-      if (isHost()) { try { await hostScoreNow(); } catch (e) { showError(e.message) } }
-    })
+      awareness.setLocalStateField("user", { id: me.id, name: me.name })
 
-    roomLabel.textContent = room
-    show(lobby, true)
-    renderPhase()
-  } catch (e) {
-    showError("입장 중 오류: " + e.message)
-  }
-})
+      stateMap.observe(renderPhase)
+      answersMap.observe(async () => {
+        renderPeers(); renderPhase();
+        if (isHost()) { try { await hostScoreNow(); } catch (e) { showError(e.message) } }
+      })
 
-beHostBtn.addEventListener("click", () => {
-  const meObj = ensureMe()
-  meObj.host = true
-  answersMap.set(me.id, meObj)
-  alert("호스트 권한을 가졌습니다.")
-  renderPhase()
-})
-
-startGameBtn.addEventListener("click", async () => {
-  if (!isHost()) return alert("호스트만 시작할 수 있습니다.")
-  try {
-    initHostWorker();
-    const res = await workerCall("LEN", {}).catch(() => null)
-    if (!res || !res.length) return alert("먼저 '퀴즈 로드'를 눌러 문제를 불러오세요.")
-    setPhase("playing")
-    setQIndex(0)
-    await hostPushRound(0)
-  } catch (e) {
-    showError("시작 실패: " + e.message)
-  }
-})
-
-loadFromUrlBtn.addEventListener("click", async () => {
-  if (!isHost()) return alert("호스트만 로드할 수 있습니다.")
-  try {
-    const res = await hostLoadQuiz(QUIZ_URL)
-    alert(`퀴즈 로드 완료: 총 ${res.total}개 중 사용 ${res.accepted}개 (필터링 ${res.filtered}개)`)
-  } catch (e) {
-    showError("로드 실패: " + e.message)
-  }
-})
-
-nextQBtn.addEventListener("click", async () => {
-  if (!isHost()) return alert("호스트만 넘길 수 있습니다.")
-  try {
-    await hostScoreNow();
-    const next = getQIndex() + 1
-    const lenInfo = await workerCall("LEN", {});
-    if (next >= (lenInfo?.length || 0)) {
-      setPhase("result")
-    } else {
-      setQIndex(next)
-      await hostPushRound(next)
+      if (roomLabel) roomLabel.textContent = room
+      show(lobby, true)
+      renderPhase()
+      log("Joined room:", room)
+    } catch (e) {
+      showError("입장 중 오류: " + e.message)
     }
-  } catch (e) {
-    showError("다음 문제로 이동 실패: " + e.message)
-  }
-})
+  })
 
-endGameBtn.addEventListener("click", async () => {
-  if (!isHost()) return alert("호스트만 종료할 수 있습니다.")
-  try { await hostScoreNow(); } catch {}
-  setPhase("result")
-})
+  beHostBtn?.addEventListener("click", () => {
+    const meObj = ensureMe()
+    meObj.host = true
+    answersMap.set(me.id, meObj)
+    alert("호스트 권한을 가졌습니다.")
+    renderPhase()
+  })
 
-// Local UI refresh
-setInterval(() => {
-  const my = answersMap?.get?.(me?.id)
-  if (my){
-    myAnsEl.textContent = (my.lastAnswer != null) ? (my.lastAnswer+1) : "-"
-    myScoreEl.textContent = my.score ?? 0
-  }
-}, 400)
+  startGameBtn?.addEventListener("click", async () => {
+    if (!isHost()) return alert("호스트만 시작할 수 있습니다.")
+    try {
+      initHostWorker();
+      const res = await workerCall("LEN", {}).catch(() => null)
+      if (!res || !res.length) return alert("먼저 '퀴즈 로드'를 눌러 문제를 불러오세요.")
+      setPhase("playing")
+      setQIndex(0)
+      await hostPushRound(0)
+    } catch (e) {
+      showError("시작 실패: " + e.message)
+    }
+  })
+
+  loadFromUrlBtn?.addEventListener("click", async () => {
+    if (!isHost()) return alert("호스트만 로드할 수 있습니다.")
+    try {
+      const res = await hostLoadQuiz(QUIZ_URL)
+      alert(`퀴즈 로드 완료: 총 ${res.total}개 중 사용 ${res.accepted}개 (필터링 ${res.filtered}개)`)
+    } catch (e) {
+      showError("로드 실패: " + e.message)
+    }
+  })
+
+  nextQBtn?.addEventListener("click", async () => {
+    if (!isHost()) return alert("호스트만 넘길 수 있습니다.")
+    try {
+      await hostScoreNow();
+      const next = getQIndex() + 1
+      const lenInfo = await workerCall("LEN", {});
+      if (next >= (lenInfo?.length || 0)) {
+        setPhase("result")
+      } else {
+        setQIndex(next)
+        await hostPushRound(next)
+      }
+    } catch (e) {
+      showError("다음 문제로 이동 실패: " + e.message)
+    }
+  })
+
+  endGameBtn?.addEventListener("click", async () => {
+    if (!isHost()) return alert("호스트만 종료할 수 있습니다.")
+    try { await hostScoreNow(); } catch {}
+    setPhase("result")
+  })
+
+  // 점수/응답 표시 주기 업데이트
+  setInterval(() => {
+    const my = answersMap?.get?.(me?.id)
+    if (my){
+      if (myAnsEl) myAnsEl.textContent = (my.lastAnswer != null) ? String(my.lastAnswer+1) : "-"
+      if (myScoreEl) myScoreEl.textContent = String(my.score ?? 0)
+    }
+  }, 400)
+
+  log("UI bound")
+}
+
+// 모듈이 body 끝에서 로드되더라도 DOMContentLoaded 보장
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bindUI)
+} else {
+  bindUI()
+}
