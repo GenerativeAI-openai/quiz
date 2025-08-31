@@ -312,11 +312,14 @@ function bindUI() {
 
   log("UI bound")
 }
-
+let disisBindUI = false
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bindUI)
   console.log("✅bindUI실행됨");
+  disisBindUI = true
 } else {
   bindUI()
   console.log("✅bindUI실행됨")
+  disisBindUI = true
 }
+if (!disisBindUI) bindUI();
