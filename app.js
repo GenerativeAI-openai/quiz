@@ -315,6 +315,8 @@ function bindUI() {
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bindUI)
+  console.log("✅bindUI실행됨");
 } else {
   bindUI()
+  console.log("✅bindUI실행됨")
 }
