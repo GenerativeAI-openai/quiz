@@ -1,13 +1,15 @@
 import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13.6.18/dist/yjs.mjs"
-import { WebrtcProvider } from "https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/dist/y-webrtc.min.js"
+// ✅ y-webrtc CDN 경로 수정 (dist/... 아님)
+import { WebrtcProvider } from "https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/y-webrtc.js"
+
+// 퀴즈 JSON URL 고정
+const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
 
 const $ = (id) => document.getElementById(id)
-const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
 
 // UI refs
 const roomInput = $("room")
 const nameInput = $("name")
-const quizUrlInput = $("quizUrl")
 const joinBtn = $("join")
 const lobby = $("lobby")
 const roomLabel = $("roomLabel")
@@ -27,12 +29,12 @@ const myScoreEl = $("myScore")
 const result = $("result")
 const rankingEl = $("ranking")
 
-// Yjs shared structures (모듈 스코프에만 존재, window에 노출 X)
+// Yjs shared structures
 let doc, provider, awareness, stateMap, answersMap
 let me = { id: "", name: "", host: false }
 let tickInterval = null
 
-// 호스트 전용 워커(정답/전체 세트는 워커 내부에만 저장)
+// 호스트 전용 워커
 let hostWorker = null
 let reqSeq = 0
 const pendingReq = new Map()
@@ -57,7 +59,7 @@ function renderPeers(){
   const peers = []
   answersMap.forEach((v, k) => peers.push({ id: k, ...v }))
   peers.sort((a,b) => b.score - a.score)
-  peersEl.innerHTML = peers.map(p => `<span class="badge">${p.nickname}${p.host ? " ⭐" : ""} (${p.score})</span>`).join("")
+  peersEl.innerHTML = peers.map(p => `<span class="badge">\${p.nickname}\${p.host ? " ⭐" : ""} (\${p.score})</span>`).join("")
 }
 
 function stopTimerTick(){
@@ -72,7 +74,7 @@ function startTimerIfNeeded(){
   if (!q || !limit || !startedAt) return
   const renderTick = () => {
     const remain = Math.max(0, Math.ceil((startedAt + limit*1000 - now())/1000))
-    timerEl.textContent = remain > 0 ? `남은 시간: ${remain}s` : "시간 종료"
+    timerEl.textContent = remain > 0 ? `남은 시간: \${remain}s` : "시간 종료"
     if (remain <= 0) stopTimerTick()
   }
   renderTick()
@@ -84,7 +86,7 @@ function renderPhase(){
   show(lobby, phase === "lobby")
   show(play, phase === "playing")
   show(result, phase === "result")
-  show(hostPanel, isHost()) // 호스트면 패널 항상 표시
+  show(hostPanel, isHost()) // 호스트면 패널 표시
 
   if (phase === "playing"){
     const q = getCurrentQShared()
@@ -97,7 +99,7 @@ function renderPhase(){
     optsEl.innerHTML = ""
     q.opts.forEach((opt, idx) => {
       const btn = document.createElement("button")
-      btn.textContent = `${idx+1}. ${opt}`
+      btn.textContent = `\${idx+1}. \${opt}`
       btn.onclick = () => submitAnswer(idx)
       optsEl.appendChild(btn)
     })
@@ -107,7 +109,7 @@ function renderPhase(){
     const arr = []
     answersMap.forEach((v, k) => arr.push({ id:k, ...v }))
     arr.sort((a,b)=> b.score - a.score)
-    rankingEl.innerHTML = arr.map(p => `<li>${p.nickname} — ${p.score}점</li>`).join("")
+    rankingEl.innerHTML = arr.map(p => `<li>\${p.nickname} — \${p.score}점</li>`).join("")
   }
   renderPeers()
 }
@@ -124,14 +126,18 @@ function workerCall(type, payload){
 
 function initHostWorker(){
   if (hostWorker) return;
-  hostWorker = new Worker("./quizHost.worker.js", { type: "module" });
-  hostWorker.onmessage = (ev) => {
-    const { ok, reqId, data, error } = ev.data || {};
-    if (!reqId || !pendingReq.has(reqId)) return;
-    const { resolve, reject } = pendingReq.get(reqId);
-    pendingReq.delete(reqId);
-    if (ok) resolve(data); else reject(new Error(error || "Worker error"));
-  };
+  try {
+    hostWorker = new Worker("./quizHost.worker.js", { type: "module" });
+    hostWorker.onmessage = (ev) => {
+      const { ok, reqId, data, error } = ev.data || {}
+      if (!reqId || !pendingReq.has(reqId)) return
+      const { resolve, reject } = pendingReq.get(reqId)
+      pendingReq.delete(reqId)
+      if (ok) resolve(data); else reject(new Error(error || "Worker error"))
+    }
+  } catch (e) {
+    alert("워커 초기화 실패: " + e.message)
+  }
 }
 
 // ===== 호스트 전용 라운드 제어 =====
@@ -141,13 +147,11 @@ async function hostLoadQuiz(url){
 }
 async function hostPushRound(index){
   const pubQ = await workerCall("GET_Q", { index });
-  // 정답 없는 공개용 문제만 공유
   stateMap.set("currentQ", pubQ); // {q, opts, t}
   stateMap.set("qIndex", index);
   stateMap.set("roundStartedAt", now());
 }
 async function hostScoreNow(){
-  // 현재 pending 제출만 모아 워커에 대조 요청
   const idx = getQIndex();
   const submissions = [];
   answersMap.forEach((v, k) => {
@@ -160,7 +164,7 @@ async function hostScoreNow(){
     const rec = answersMap.get(s.id);
     if (!rec) continue;
     if (s.correct) rec.score = (rec.score || 0) + 1;
-    rec.pending = null;      // 소진
+    rec.pending = null;
     answersMap.set(s.id, rec);
   }
 }
@@ -171,7 +175,6 @@ function submitAnswer(idx){
   if (!q) return
   const my = ensureMe()
 
-  // 제한시간 검사
   const startedAt = stateMap.get("roundStartedAt")
   const limit = q?.t
   const expired = limit && (now() > startedAt + limit*1000)
@@ -187,40 +190,42 @@ function submitAnswer(idx){
 
 // ===== 이벤트 바인딩 =====
 joinBtn.onclick = () => {
-  const room = roomInput.value.trim()
-  const name = nameInput.value.trim() || "Player"
-  if (!room) return alert("방 코드를 입력하세요")
+  try {
+    const room = roomInput.value.trim()
+    const name = nameInput.value.trim() || "Player"
+    if (!room) return alert("방 코드를 입력하세요")
 
-  me.id = crypto.randomUUID()
-  me.name = name
+    me.id = crypto.randomUUID()
+    me.name = name
 
-  doc = new Y.Doc()
-  provider = new WebrtcProvider(room, doc, {})
-  awareness = provider.awareness
+    doc = new Y.Doc()
+    provider = new WebrtcProvider(room, doc, {})
+    awareness = provider.awareness
 
-  stateMap = doc.getMap("state")
-  answersMap = doc.getMap("answers")
+    stateMap = doc.getMap("state")
+    answersMap = doc.getMap("answers")
 
-  if (!stateMap.get("phase")) stateMap.set("phase", "lobby")
-  if (stateMap.get("qIndex") === undefined) stateMap.set("qIndex", -1)
+    if (!stateMap.get("phase")) stateMap.set("phase", "lobby")
+    if (stateMap.get("qIndex") === undefined) stateMap.set("qIndex", -1)
 
-  const cur = answersMap.get(me.id) || { nickname: me.name, score: 0, lastAnswer: null, host: false, pending: null }
-  answersMap.set(me.id, cur)
+    const cur = answersMap.get(me.id) || { nickname: me.name, score: 0, lastAnswer: null, host: false, pending: null }
+    answersMap.set(me.id, cur)
 
-  awareness.setLocalStateField("user", { id: me.id, name: me.name })
+    awareness.setLocalStateField("user", { id: me.id, name: me.name })
 
-  stateMap.observe(renderPhase)
-  answersMap.observe(async () => {
-    renderPeers(); renderPhase();
-    // 호스트만 채점 루프 수행
-    if (isHost()) {
-      try { await hostScoreNow(); } catch {}
-    }
-  })
+    stateMap.observe(renderPhase)
+    answersMap.observe(async () => {
+      renderPeers(); renderPhase();
+      if (isHost()) { try { await hostScoreNow(); } catch {} }
+    })
 
-  roomLabel.textContent = room
-  show(lobby, true)
-  renderPhase()
+    roomLabel.textContent = room
+    show(lobby, true)
+    renderPhase()
+  } catch (e) {
+    alert("입장 중 오류: " + e.message)
+    console.error(e)
+  }
 }
 
 beHostBtn.onclick = () => {
@@ -235,9 +240,8 @@ startGameBtn.onclick = async () => {
   if (!isHost()) return alert("호스트만 시작할 수 있습니다.")
   try {
     initHostWorker();
-    // 유효성: 로드된 퀴즈 길이 확인
-    const lenInfo = await workerCall("LEN", {});
-    if (!lenInfo || !lenInfo.length) return alert("먼저 퀴즈 JSON을 로드하세요.");
+    const res = await workerCall("LEN", {}).catch(() => null)
+    if (!res || !res.length) return alert("먼저 '퀴즈 로드'를 눌러 문제를 불러오세요.")
     setPhase("playing")
     setQIndex(0)
     await hostPushRound(0)
@@ -250,7 +254,7 @@ loadFromUrlBtn.onclick = async () => {
   if (!isHost()) return alert("호스트만 로드할 수 있습니다.")
   try {
     const res = await hostLoadQuiz(QUIZ_URL)
-    alert(`퀴즈 로드 완료: 총 ${res.total}개 중 사용 ${res.accepted}개 (필터링 ${res.filtered}개)`)
+    alert(`퀴즈 로드 완료: 총 \${res.total}개 중 사용 \${res.accepted}개 (필터링 \${res.filtered}개)`)
   } catch (e) {
     alert("로드 실패: " + e.message)
   }
@@ -259,7 +263,6 @@ loadFromUrlBtn.onclick = async () => {
 nextQBtn.onclick = async () => {
   if (!isHost()) return alert("호스트만 넘길 수 있습니다.")
   try {
-    // 라운드 종료 시점에 한번 더 채점(늦게 들어온 제출 처리)
     await hostScoreNow();
     const next = getQIndex() + 1
     const lenInfo = await workerCall("LEN", {});
@@ -276,13 +279,11 @@ nextQBtn.onclick = async () => {
 
 endGameBtn.onclick = async () => {
   if (!isHost()) return alert("호스트만 종료할 수 있습니다.")
-  try {
-    await hostScoreNow();
-  } catch {}
+  try { await hostScoreNow(); } catch {}
   setPhase("result")
 }
 
-// 내 점수/답 표시 주기 업데이트(로컬 UI만)
+// 내 점수/답 표시 주기 업데이트
 setInterval(() => {
   const my = answersMap?.get?.(me?.id)
   if (my){
