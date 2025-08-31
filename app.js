@@ -290,4 +290,4 @@ setInterval(() => {
     myAnsEl.textContent = (my.lastAnswer != null) ? (my.lastAnswer+1) : "-"
     myScoreEl.textContent = my.score ?? 0
   }
-}, 400)
+}, 400);
