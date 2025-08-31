@@ -1,10 +1,9 @@
 import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13.6.18/dist/yjs.mjs"
 // ✅ y-webrtc CDN 경로 수정 (dist/... 아님)
 import { WebrtcProvider } from "https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/y-webrtc.js"
-
+console.log("✅이 메시지가 표시되면 정상 작동한 것입니다")
 // 퀴즈 JSON URL 고정
 const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
-
 const $ = (id) => document.getElementById(id)
 
 // UI refs
