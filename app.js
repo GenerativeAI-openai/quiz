@@ -1,15 +1,15 @@
-// app.js (크래시 방지/진단 로그 강화 버전)
+// app.js — onclick 제거, 이벤트 리스너 방식(ESM), 진단 포함
 import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13.6.18/dist/yjs.mjs"
 import { WebrtcProvider } from "https://esm.sh/y-webrtc@10.3.0"
 
-// 고정 퀴즈 URL
+// 고정 퀴즈 URL (코딩 문제 자동 필터링/정답 관리 = 워커 내부)
 const QUIZ_URL = "https://raw.githubusercontent.com/GenerativeAI-openai/quiz_json/refs/heads/main/quiz.json"
 
-// 유틸
+// ────────────────────────────────────────────────────────────────
+// DOM & 유틸
 const $ = (id) => document.getElementById(id)
 const log = (...a) => { if (window.__QUIZ_DEBUG !== false) console.log("[QUIZ]", ...a) }
 
-// UI refs
 const roomInput = $("room")
 const nameInput = $("name")
 const joinBtn = $("join")
@@ -31,7 +31,7 @@ const myScoreEl = $("myScore")
 const result = $("result")
 const rankingEl = $("ranking")
 
-// (선택) 오류 패널이 있으면 쓰고, 없으면 콘솔만 사용
+// (선택) 오류 패널이 있으면 사용
 const alertBox = $("alert") || null
 const alertText = $("alertText") || null
 function showError(msg) {
@@ -39,26 +39,21 @@ function showError(msg) {
   if (alertBox && alertText) {
     alertText.textContent = String(msg)
     alertBox.classList.remove("hidden")
-  } else {
-    // 화면 요소가 없어도 절대 크래시하지 않음
   }
 }
-
-// 전역 에러 훅(패널 없으면 콘솔만)
 window.addEventListener("error", (e)=> showError("Uncaught error: " + (e?.error?.message || e.message || e)))
 window.addEventListener("unhandledrejection", (e)=> showError("Unhandled promise rejection: " + (e?.reason?.message || e.reason || e)))
-
-// file:// 경고(크래시 X)
 if (location.protocol === "file:") {
-  showError("file:// 로 열면 Web Worker/모듈 문제가 납니다. 간단 서버로 열어주세요. (예: `python -m http.server`)")
+  showError("file:// 로 열면 Web Worker/모듈 문제가 납니다. 간단 서버(예: `python -m http.server`)로 열어주세요.")
 }
 
-// Yjs 공유 상태
+// ────────────────────────────────────────────────────────────────
+// Yjs 상태
 let doc, provider, awareness, stateMap, answersMap
 let me = { id: "", name: "", host: false }
 let tickInterval = null
 
-// 호스트 전용 워커(RPC)
+// 호스트 전용 워커 RPC
 let hostWorker = null
 let reqSeq = 0
 const pendingReq = new Map()
@@ -123,7 +118,7 @@ function renderPhase(){
       q.opts.forEach((opt, idx) => {
         const btn = document.createElement("button")
         btn.textContent = `${idx+1}. ${opt}`
-        btn.onclick = () => submitAnswer(idx)
+        btn.addEventListener("click", () => submitAnswer(idx))
         optsEl.appendChild(btn)
       })
     }
@@ -138,7 +133,7 @@ function renderPhase(){
   renderPeers()
 }
 
-// 워커 RPC
+// ─────────────── Worker RPC ───────────────
 function workerCall(type, payload){
   return new Promise((resolve, reject) => {
     if (!hostWorker) return reject(new Error("호스트 워커가 초기화되지 않았습니다."));
@@ -166,7 +161,7 @@ function initHostWorker(){
   }
 }
 
-// 라운드 제어(호스트)
+// ─────────────── 호스트 라운드 제어 ───────────────
 async function hostLoadQuiz(url){ initHostWorker(); return workerCall("LOAD", { url }); }
 async function hostPushRound(index){
   const pubQ = await workerCall("GET_Q", { index });
@@ -192,7 +187,7 @@ async function hostScoreNow(){
   }
 }
 
-// 제출
+// ─────────────── 참가자 제출 ───────────────
 function submitAnswer(idx){
   const q = getCurrentQShared()
   if (!q) return
@@ -208,7 +203,7 @@ function submitAnswer(idx){
   if (myScoreEl) myScoreEl.textContent = String(my.score ?? 0)
 }
 
-// 바인딩 (DOMContentLoaded 이후에도 안전)
+// ─────────────── 이벤트 바인딩(모두 addEventListener) ───────────────
 function bindUI() {
   if (!joinBtn) { showError("버튼 요소를 찾지 못했습니다. index.html의 id를 확인하세요."); return; }
 
@@ -318,7 +313,6 @@ function bindUI() {
   log("UI bound")
 }
 
-// 모듈이 body 끝에서 로드되더라도 DOMContentLoaded 보장
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bindUI)
 } else {
