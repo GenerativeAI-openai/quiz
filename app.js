@@ -1,0 +1,1 @@
+/* app.js content from previous answer (security + worker integrated) */

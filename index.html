@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Yjs 퀴즈 배틀 (방 코드 매칭 / 외부 JSON)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <h1>Yjs 퀴즈 배틀</h1>
+
+  <section class="card">
+    <div class="row">
+      <input id="room" placeholder="방 코드 (예: QUIZ-ABCD)" />
+      <input id="name" placeholder="닉네임" />
+    </div>
+    <div class="row">
+      <input id="quizUrl" placeholder="퀴즈 JSON Raw URL (GitHub Raw)" />
+    </div>
+    <div class="row">
+      <button id="join">입장</button>
+    </div>
+    <p class="muted">같은 방 코드로 입장한 사람끼리 자동으로 연결됩니다. (y-webrtc, 공개 시그널링)</p>
+  </section>
+
+  <section id="lobby" class="card hidden">
+    <h2>로비</h2>
+    <p>방: <span id="roomLabel"></span></p>
+    <p>참가자: <span id="peers"></span></p>
+    <div class="row">
+      <button id="beHost">내가 호스트</button>
+      <button id="startGame">게임 시작</button>
+    </div>
+  </section>
+
+  <section id="hostPanel" class="card hidden">
+    <h2>호스트 패널</h2>
+    <div class="row">
+      <button id="loadFromUrl">외부 JSON 로드</button>
+      <button id="nextQ">다음 문제</button>
+      <button id="endGame">게임 종료</button>
+    </div>
+    <p class="muted">외부 JSON은 위 입력창의 URL을 사용합니다. (GitHub Raw 권장)</p>
+  </section>
+
+  <section id="play" class="card hidden">
+    <h2>퀴즈</h2>
+    <div id="timer" class="pill"></div>
+    <div id="qbox" class="question"></div>
+    <div id="opts" class="options"></div>
+    <p class="muted">내 답: <span id="myAns">-</span> / 점수: <span id="myScore">0</span></p>
+  </section>
+
+  <section id="result" class="card hidden">
+    <h2>결과</h2>
+    <ol id="ranking"></ol>
+  </section>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

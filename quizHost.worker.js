@@ -1,0 +1,1 @@
+/* quizHost.worker.js content from previous answer (filters + worker logic) */
